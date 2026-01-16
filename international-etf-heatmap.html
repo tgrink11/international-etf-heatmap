@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kerry's International ETF Heat Map</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background-color: #131722;
+      color: #d1d4dc;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: #1e222d;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      border-bottom: 1px solid #2a2e39;
+    }
+
+    .header h1 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .header-subtitle {
+      font-size: 0.8rem;
+      color: #787b86;
+      margin-left: 10px;
+    }
+
+    .header-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .header select, .header button {
+      background: #2a2e39;
+      color: #d1d4dc;
+      border: 1px solid #363a45;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .header select:hover, .header button:hover {
+      background: #363a45;
+    }
+
+    .header button.refresh {
+      background: #2962ff;
+      border-color: #2962ff;
+      color: #fff;
+    }
+
+    .header button.refresh:hover {
+      background: #1e4bd8;
+    }
+
+    .status {
+      font-size: 0.75rem;
+      color: #787b86;
+    }
+
+    /* Main Content */
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 60px);
+      padding: 10px 30px;
+    }
+
+    /* Treemap Container */
+    #treemap {
+      flex: 1;
+      padding: 8px;
+      overflow: hidden;
+      background: #131722;
+    }
+
+    /* Treemap Cells */
+    .cell {
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .cell:hover {
+      opacity: 0.8;
+    }
+
+    .cell rect {
+      stroke: #1e222d;
+      stroke-width: 1.5px;
+    }
+
+    /* Tooltip */
+    .tooltip {
+      position: fixed;
+      background: #1e222d;
+      border: 1px solid #363a45;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      pointer-events: none;
+      z-index: 1000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      max-width: 320px;
+    }
+
+    .tooltip-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #363a45;
+    }
+
+    .tooltip-ticker {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .tooltip-change {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .tooltip-name {
+      color: #787b86;
+      margin-bottom: 8px;
+      font-size: 0.8rem;
+    }
+
+    .tooltip-section {
+      background: #2a2e39;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      margin-bottom: 8px;
+      display: inline-block;
+    }
+
+    .tooltip-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 4px 0;
+    }
+
+    .tooltip-label {
+      color: #787b86;
+    }
+
+    .tooltip-value {
+      color: #d1d4dc;
+      font-weight: 500;
+    }
+
+    /* Legend */
+    .legend {
+      background: #1e222d;
+      padding: 8px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+      border-top: 1px solid #2a2e39;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      width: 36px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: 600;
+      border-radius: 2px;
+    }
+
+    /* Loading Overlay */
+    .loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(19, 23, 34, 0.95);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+
+    .loading-content {
+      text-align: center;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #2a2e39;
+      border-top-color: #2962ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Hidden */
+    .hidden {
+      display: none !important;
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      .header {
+        padding: 8px 12px;
+      }
+      
+      .header h1 {
+        font-size: 1rem;
+      }
+      
+      .header select, .header button {
+        padding: 5px 8px;
+        font-size: 0.75rem;
+      }
+      
+      .legend-item {
+        width: 30px;
+        height: 18px;
+        font-size: 0.55rem;
+      }
+
+      .main-container {
+        padding: 5px 10px;
+      }
+    }
+
+    /* Control Group */
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Overlay -->
+  <div class="loading" id="loading">
+    <div class="loading-content">
+      <div class="spinner"></div>
+      <div>Loading international ETF data...</div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div>
+      <h1>🌍 Kerry's International ETF Heat Map</h1>
+      <span class="header-subtitle">Global & Regional ETFs</span>
+    </div>
+    <div class="header-controls">
+      <div class="control-group">
+        <select id="sizeBy" title="Size boxes by">
+          <option value="balanced">Size: Balanced</option>
+          <option value="equal">Size: Equal</option>
+          <option value="marketcap">Size: By AUM</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <select id="colorBy" title="Color boxes by">
+          <option value="daily">Color: Daily %</option>
+          <option value="ytd">Color: YTD %</option>
+        </select>
+      </div>
+
+      <button class="refresh" onclick="refreshData()">🔄 Refresh</button>
+      <span class="status" id="status">Loading...</span>
+    </div>
+  </header>
+
+  <!-- Main Treemap -->
+  <div class="main-container">
+    <div id="treemap"></div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend" id="legend"></div>
+
+  <!-- Tooltip -->
+  <div class="tooltip hidden" id="tooltip"></div>
+
+  <script>
+    // ============================================
+    // CONFIGURATION
+    // ============================================
+    const API_KEY = 'e0enTj1fVE1n8IVYZaFKj6P5nfIHYNMM';
+    
+    // ETF Categories
+    const PORTFOLIO = {
+      "🌏 Asia Pacific": {
+        tickers: ["AAXJ", "AIA", "IPAC", "EWA", "EWH", "EWJ", "EWJV", "HEWJ", "SCJ", "EWY", "EWT", "EWS", "EWM", "INDA", "INDY", "SMIN", "CNYA", "ECNS", "FXI", "MCHI", "TCHI", "EIDO", "EPHE", "THD", "TOK", "ENZL"],
+        color: "#E65100"
+      },
+      "🇪🇺 Europe": {
+        tickers: ["EZU", "HEZU", "IEUR", "IEUS", "IEV", "EUFN", "EWQ", "EWG", "EWI", "EIRL", "EWN", "ENOR", "EWP", "EWD", "EWL", "EWU", "EWUS", "EWO", "EWK", "EFNL", "IBRN"],
+        color: "#1565C0"
+      },
+      "🌎 Americas (ex-US)": {
+        tickers: ["EWC", "EWW", "EWZ", "EWZS", "ILF", "ECH", "EPU"],
+        color: "#2E7D32"
+      },
+      "🌍 Emerging Markets": {
+        tickers: ["EEM", "EEMA", "EEMS", "EEMV", "EMGF", "EMIF", "EMXC", "HEEM", "IEMG", "BKF", "ESGE", "LDEM", "EMXF"],
+        color: "#7B1FA2"
+      },
+      "🇮🇱 Middle East & Africa": {
+        tickers: ["EZA", "EDEN", "EIS", "KSA", "KWT", "QAT", "TUR", "UAE"],
+        color: "#C62828"
+      },
+      "🌐 Global & Intl Developed": {
+        tickers: ["ACWX", "ACWI", "ACWV", "EFA", "EFAV", "EFG", "EFV", "ESGD", "HEFA", "HSCZ", "IEFA", "SCZ", "DMXF", "IDEV", "IXUS", "HAWX", "CRBN", "URTH", "DSI"],
+        color: "#00838F"
+      },
+      "📊 Global Sectors": {
+        tickers: ["EXI", "ICLN", "IGF", "IOO", "IXC", "IXG", "IXJ", "IXN", "IXP", "JXI", "KXI", "MXI", "PICK", "RING", "RXI", "SLVP", "WOOD", "VEGI", "EPP", "DVYA", "DVYE"],
+        color: "#F9A825"
+      },
+      "💡 Smart Beta & Factor": {
+        tickers: ["AQLT", "EQLT", "EVLU", "GLOF", "IMTM", "INTF", "IQLT", "ISCF", "ISVL", "IVLU", "LCTD", "SDG", "WSML", "BIDD", "CORO", "IDV", "IDYN", "IGRO"],
+        color: "#6A1B9A"
+      },
+      "🏦 Fixed Income & Bonds": {
+        tickers: ["BEMB", "BREM", "EMB", "EUHY", "EUIG", "GGOV", "IAGG", "IGOV", "ISHG", "PABD", "BND"],
+        color: "#455A64"
+      },
+      "🏢 Real Estate": {
+        tickers: ["REET", "IFGL"],
+        color: "#5D4037"
+      }
+    };
+
+    // Get all tickers
+    const ALL_TICKERS = Object.values(PORTFOLIO).flatMap(p => p.tickers);
+
+    // Color scales
+    const DAILY_COLORS = [
+      { threshold: -3, color: '#B71C1C' },
+      { threshold: -2, color: '#D32F2F' },
+      { threshold: -1, color: '#E53935' },
+      { threshold: -0.5, color: '#EF5350' },
+      { threshold: 0.5, color: '#37474F' },
+      { threshold: 1, color: '#4DB6AC' },
+      { threshold: 2, color: '#26A69A' },
+      { threshold: 3, color: '#00E676' },
+      { threshold: Infinity, color: '#00C853' }
+    ];
+
+    const YTD_COLORS = [
+      { threshold: -50, color: '#B71C1C' },
+      { threshold: -30, color: '#D32F2F' },
+      { threshold: -15, color: '#E53935' },
+      { threshold: -5, color: '#EF5350' },
+      { threshold: 5, color: '#37474F' },
+      { threshold: 15, color: '#4DB6AC' },
+      { threshold: 30, color: '#26A69A' },
+      { threshold: 50, color: '#00E676' },
+      { threshold: Infinity, color: '#00C853' }
+    ];
+
+    // State
+    let stockData = [];
+    let ytdData = {};
+    let colorBy = 'daily';
+    let sizeBy = 'balanced';
+
+    // ============================================
+    // API FUNCTIONS
+    // ============================================
+    async function fetchStockData() {
+      const batchSize = 50;
+      const allData = [];
+
+      for (let i = 0; i < ALL_TICKERS.length; i += batchSize) {
+        const batch = ALL_TICKERS.slice(i, i + batchSize);
+        const symbols = batch.join(',');
+        const url = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${API_KEY}`;
+
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            allData.push(...data);
+          }
+        } catch (error) {
+          console.error('Error fetching stock data:', error);
+        }
+        
+        // Small delay between batches
+        if (i + batchSize < ALL_TICKERS.length) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      return allData;
+    }
+
+    async function fetchYTDData() {
+      const batchSize = 50;
+      const allData = {};
+
+      for (let i = 0; i < ALL_TICKERS.length; i += batchSize) {
+        const batch = ALL_TICKERS.slice(i, i + batchSize);
+        const symbols = batch.join(',');
+        const url = `https://financialmodelingprep.com/api/v3/stock-price-change/${symbols}?apikey=${API_KEY}`;
+
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            data.forEach(item => {
+              allData[item.symbol] = item;
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching YTD data:', error);
+        }
+        
+        if (i + batchSize < ALL_TICKERS.length) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      return allData;
+    }
+
+    // ============================================
+    // COLOR FUNCTIONS
+    // ============================================
+    function getColor(value, type = 'daily') {
+      const colors = type === 'daily' ? DAILY_COLORS : YTD_COLORS;
+      
+      for (const item of colors) {
+        if (value < item.threshold) {
+          return item.color;
+        }
+      }
+      return colors[colors.length - 1].color;
+    }
+
+    function getTextColor(bgColor) {
+      const hex = bgColor.replace('#', '');
+      const r = parseInt(hex.substr(0, 2), 16);
+      const g = parseInt(hex.substr(2, 2), 16);
+      const b = parseInt(hex.substr(4, 2), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    // ============================================
+    // SIZE CALCULATION
+    // ============================================
+    function getSizeValue(stock, sectionName) {
+      const marketCap = stock.marketCap || 1000000;
+      
+      switch (sizeBy) {
+        case 'equal':
+          return 1;
+        
+        case 'balanced':
+          const allCaps = stockData.map(s => s.marketCap || 1000000);
+          const minCap = Math.min(...allCaps);
+          const maxCap = Math.max(...allCaps);
+          const logVal = Math.log10(marketCap);
+          const logMin = Math.log10(minCap);
+          const logMax = Math.log10(maxCap);
+          const normalized = (logVal - logMin) / (logMax - logMin);
+          return 1 + (normalized * 3);
+        
+        case 'marketcap':
+        default:
+          return marketCap;
+      }
+    }
+
+    // ============================================
+    // DATA PROCESSING
+    // ============================================
+    function buildHierarchy() {
+      const dataMap = {};
+      stockData.forEach(s => { dataMap[s.symbol] = s; });
+
+      const children = [];
+      
+      for (const [sectionName, section] of Object.entries(PORTFOLIO)) {
+        const stocks = section.tickers
+          .map(t => dataMap[t])
+          .filter(s => s)
+          .map(s => ({
+            name: s.symbol,
+            value: getSizeValue(s, sectionName),
+            data: s,
+            ytd: ytdData[s.symbol]?.ytd || 0,
+            section: sectionName,
+            sectionColor: section.color
+          }));
+
+        if (stocks.length > 0) {
+          stocks.sort((a, b) => b.value - a.value);
+          children.push({
+            name: sectionName,
+            children: stocks,
+            sectionColor: section.color
+          });
+        }
+      }
+
+      // Sort sections by number of stocks found
+      children.sort((a, b) => b.children.length - a.children.length);
+
+      return { name: 'root', children };
+    }
+
+    // ============================================
+    // RENDERING
+    // ============================================
+    function renderTreemap() {
+      const container = document.getElementById('treemap');
+      container.innerHTML = '';
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      const hierarchy = buildHierarchy();
+
+      const root = d3.hierarchy(hierarchy)
+        .sum(d => d.value)
+        .sort((a, b) => b.value - a.value);
+
+      const treemap = d3.treemap()
+        .size([width, height])
+        .paddingTop(24)
+        .paddingRight(3)
+        .paddingBottom(3)
+        .paddingLeft(3)
+        .paddingInner(3)
+        .round(true);
+
+      treemap(root);
+
+      const svg = d3.select('#treemap')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      // Draw section backgrounds and labels
+      const sections = root.children || [];
+      sections.forEach(section => {
+        const sectionColor = section.data.sectionColor || '#2a2e39';
+        
+        // Section background border
+        svg.append('rect')
+          .attr('x', section.x0)
+          .attr('y', section.y0)
+          .attr('width', section.x1 - section.x0)
+          .attr('height', section.y1 - section.y0)
+          .attr('fill', 'none')
+          .attr('stroke', sectionColor)
+          .attr('stroke-width', 2);
+
+        // Section label background
+        svg.append('rect')
+          .attr('x', section.x0)
+          .attr('y', section.y0)
+          .attr('width', section.x1 - section.x0)
+          .attr('height', 22)
+          .attr('fill', sectionColor);
+
+        // Section label text
+        const labelText = section.data.name.length > 25 
+          ? section.data.name.substring(0, 25) + '...'
+          : section.data.name;
+        
+        svg.append('text')
+          .attr('x', section.x0 + 6)
+          .attr('y', section.y0 + 15)
+          .attr('font-size', '11px')
+          .attr('font-weight', '700')
+          .attr('fill', '#FFFFFF')
+          .text(labelText);
+      });
+
+      // Draw ETF cells
+      const leaves = root.leaves();
+
+      const cells = svg.selectAll('.cell')
+        .data(leaves)
+        .enter()
+        .append('g')
+        .attr('class', 'cell')
+        .attr('transform', d => `translate(${d.x0},${d.y0})`);
+
+      cells.append('rect')
+        .attr('width', d => Math.max(0, d.x1 - d.x0))
+        .attr('height', d => Math.max(0, d.y1 - d.y0))
+        .attr('fill', d => {
+          const value = colorBy === 'daily' 
+            ? (d.data.data?.changesPercentage || 0)
+            : (d.data.ytd || 0);
+          return getColor(value, colorBy);
+        })
+        .attr('rx', 2);
+
+      // Add text
+      cells.each(function(d) {
+        const cellWidth = d.x1 - d.x0;
+        const cellHeight = d.y1 - d.y0;
+        const cell = d3.select(this);
+
+        const pctValue = colorBy === 'daily'
+          ? (d.data.data?.changesPercentage || 0)
+          : (d.data.ytd || 0);
+        const bgColor = getColor(pctValue, colorBy);
+        const textColor = getTextColor(bgColor);
+
+        if (cellWidth < 30 || cellHeight < 24) return;
+
+        const tickerSize = Math.min(
+          Math.max(8, Math.floor(cellWidth / 5)),
+          Math.max(8, Math.floor(cellHeight / 2.8)),
+          13
+        );
+
+        cell.append('text')
+          .attr('x', cellWidth / 2)
+          .attr('y', cellHeight / 2 - (cellHeight > 42 ? 6 : 1))
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', `${tickerSize}px`)
+          .attr('font-weight', '700')
+          .attr('fill', textColor)
+          .text(d.data.name);
+
+        if (cellHeight > 42 && cellWidth > 38) {
+          const pctText = (pctValue >= 0 ? '+' : '') + pctValue.toFixed(2) + '%';
+          const pctSize = Math.min(tickerSize - 1, 10);
+          
+          cell.append('text')
+            .attr('x', cellWidth / 2)
+            .attr('y', cellHeight / 2 + tickerSize / 2 + 5)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('font-size', `${pctSize}px`)
+            .attr('font-weight', '600')
+            .attr('fill', textColor)
+            .text(pctText);
+        }
+      });
+
+      cells
+        .on('mouseenter', showTooltip)
+        .on('mousemove', moveTooltip)
+        .on('mouseleave', hideTooltip);
+    }
+
+    // ============================================
+    // TOOLTIP
+    // ============================================
+    function showTooltip(event, d) {
+      const tooltip = document.getElementById('tooltip');
+      const stock = d.data.data;
+      const ytd = d.data.ytd || 0;
+      const section = d.data.section;
+
+      if (!stock) return;
+
+      const pctChange = stock.changesPercentage || 0;
+      const pctColor = pctChange >= 0 ? '#00C853' : '#EF5350';
+      const ytdColor = ytd >= 0 ? '#00C853' : '#EF5350';
+
+      tooltip.innerHTML = `
+        <div class="tooltip-header">
+          <span class="tooltip-ticker">${stock.symbol}</span>
+          <span class="tooltip-change" style="color: ${pctColor}">
+            ${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%
+          </span>
+        </div>
+        <span class="tooltip-section" style="background: ${d.data.sectionColor}">${section}</span>
+        <div class="tooltip-name">${stock.name || ''}</div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Price</span>
+          <span class="tooltip-value">$${(stock.price || 0).toFixed(2)}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Change</span>
+          <span class="tooltip-value" style="color: ${pctColor}">
+            ${stock.change >= 0 ? '+' : ''}$${(stock.change || 0).toFixed(2)}
+          </span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">YTD</span>
+          <span class="tooltip-value" style="color: ${ytdColor}">
+            ${ytd >= 0 ? '+' : ''}${ytd.toFixed(1)}%
+          </span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Volume</span>
+          <span class="tooltip-value">${formatNumber(stock.volume)}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Avg Volume</span>
+          <span class="tooltip-value">${formatNumber(stock.avgVolume)}</span>
+        </div>
+      `;
+
+      tooltip.classList.remove('hidden');
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const tooltip = document.getElementById('tooltip');
+      const padding = 15;
+      let x = event.clientX + padding;
+      let y = event.clientY + padding;
+
+      const rect = tooltip.getBoundingClientRect();
+      if (x + rect.width > window.innerWidth) {
+        x = event.clientX - rect.width - padding;
+      }
+      if (y + rect.height > window.innerHeight) {
+        y = event.clientY - rect.height - padding;
+      }
+
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${y}px`;
+    }
+
+    function hideTooltip() {
+      document.getElementById('tooltip').classList.add('hidden');
+    }
+
+    // ============================================
+    // LEGEND
+    // ============================================
+    function renderLegend() {
+      const legend = document.getElementById('legend');
+      const colors = colorBy === 'daily' ? DAILY_COLORS : YTD_COLORS;
+      const labels = colorBy === 'daily' 
+        ? ['-3%', '-2%', '-1%', '-0.5%', '0%', '+0.5%', '+1%', '+2%', '+3%']
+        : ['-50%', '-30%', '-15%', '-5%', '0%', '+5%', '+15%', '+30%', '+50%'];
+
+      legend.innerHTML = colors.map((c, i) => `
+        <div class="legend-item" style="background: ${c.color}; color: ${getTextColor(c.color)}">
+          ${labels[i]}
+        </div>
+      `).join('');
+    }
+
+    // ============================================
+    // UTILITIES
+    // ============================================
+    function formatNumber(num) {
+      if (!num) return '0';
+      if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+      if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+      if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+      return num.toFixed(0);
+    }
+
+    function updateStatus(text) {
+      document.getElementById('status').textContent = text;
+    }
+
+    // ============================================
+    // EVENT HANDLERS
+    // ============================================
+    async function refreshData() {
+      document.getElementById('loading').classList.remove('hidden');
+      updateStatus('Refreshing...');
+
+      try {
+        stockData = await fetchStockData();
+        ytdData = await fetchYTDData();
+        renderTreemap();
+        renderLegend();
+        updateStatus(`Updated: ${new Date().toLocaleTimeString()} | ${stockData.length} ETFs`);
+      } catch (error) {
+        updateStatus('Error loading data');
+        console.error(error);
+      }
+
+      document.getElementById('loading').classList.add('hidden');
+    }
+
+    function setupEventListeners() {
+      document.getElementById('sizeBy').addEventListener('change', (e) => {
+        sizeBy = e.target.value;
+        renderTreemap();
+      });
+
+      document.getElementById('colorBy').addEventListener('change', (e) => {
+        colorBy = e.target.value;
+        renderTreemap();
+        renderLegend();
+      });
+
+      let resizeTimeout;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(renderTreemap, 250);
+      });
+    }
+
+    // ============================================
+    // INITIALIZATION
+    // ============================================
+    async function init() {
+      setupEventListeners();
+      await refreshData();
+      setInterval(refreshData, 5 * 60 * 1000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
